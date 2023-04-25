@@ -22,14 +22,10 @@ class MMTransE(Model):
 
         self.ent_embeddings = nn.Embedding(self.ent_tot, self.dim)
         self.rel_embeddings = nn.Embedding(self.rel_tot, self.dim)
-        # 新增的投影矩阵和图像embeddings
         self.img_proj = nn.Linear(self.img_dim, self.dim)
         self.img_embeddings = img_emb
-        # 设置img_embedding的的梯度不更新
         self.img_embeddings.requires_grad = False
         self.beta = beta
-        #new 2是1-2，new3是1-3
-        # self.log_file = open('{}.txt'.format(time.time()), 'w')
         if margin is None or epsilon is None:
             nn.init.xavier_uniform_(self.ent_embeddings.weight.data)
             nn.init.xavier_uniform_(self.rel_embeddings.weight.data)
@@ -85,19 +81,15 @@ class MMTransE(Model):
             r_neg = self.rel_embeddings(r_neg)
             h_img_ent_emb = self.img_proj(self.img_embeddings(h_img_neg))
             t_img_ent_emb = self.img_proj(self.img_embeddings(t_img_neg))
-            # 正常模态的分数
             neg_score1 = self._calc(h_neg, t_neg, r_neg, mode) + self._calc(h_img_ent_emb, t_img_ent_emb, r_neg, mode)
-            # 跨模态的分数
             neg_score2 = (
                 self._calc(h_img_ent_emb, t_neg, r_neg, mode)
                     + self._calc(h_neg, t_img_ent_emb, r_neg, mode)
             )
             selector = (neg_score2 < neg_score1).int()
-            # 改了，注意
             img_idx = torch.nonzero(selector).reshape((-1, ))
             p = img_idx.shape[0] / (batch_size * neg_num)
             num = int(neg_num * p * batch_size)
-            # 这里也改了，目前是2score2-new的形态，原先index可能要反过来
             h_ent, h_img, t_ent, t_img = batch_h.clone(), batch_h.clone(), batch_t.clone(), batch_t.clone()
             h_ent[batch_size: batch_size + num] = batch_h[0: num].clone()
             t_ent[batch_size: batch_size + num] = batch_t[0: num].clone()
@@ -108,7 +100,6 @@ class MMTransE(Model):
             if neg_mode == "normal":
                 h_ent, h_img, t_ent, t_img = batch_h, batch_h, batch_t, batch_t
             else:
-                # 只对图像进行负采样，原本的batch_h/batch_t中包含的就是负样本
                 if neg_mode == "img":
                     h_img, t_img = batch_h, batch_t
                     h_ent = torch.tensor(batch_h[:batch_size]).repeat(neg_num + 1)
@@ -157,86 +148,7 @@ class MMTransE(Model):
         r = self.rel_embeddings(batch_r)
         h_img_emb = self.img_proj(self.img_embeddings(h_img))
         t_img_emb = self.img_proj(self.img_embeddings(t_img))
-        # 跨模态链接预测的过程中，只考虑h+r和尾部图像的匹配度
         score = self._calc(h, t_img_emb, r, mode)
-        if self.margin_flag:
-            return self.margin - score
-        else:
-            return score
-
-    def score_ent2ent(self, data):
-        batch_h = data['batch_h']
-        batch_t = data['batch_t']
-        batch_r = data['batch_r']
-        mode = data['mode']
-        h = self.ent_embeddings(batch_h)
-        t = self.ent_embeddings(batch_t)
-        r = self.rel_embeddings(batch_r)
-        # 跨模态链接预测的过程中，只考虑h+r和尾部图像的匹配度
-        score = self._calc(h, t, r, mode)
-        if self.margin_flag:
-            return self.margin - score
-        else:
-            return score
-
-    def score_vis2vis(self, data):
-        batch_h = data['batch_h']
-        batch_t = data['batch_t']
-        batch_r = data['batch_r']
-        mode = data['mode']
-        h = self.img_proj(self.img_embeddings(batch_h))
-        t = self.img_proj(self.img_embeddings(batch_t))
-        r = self.rel_embeddings(batch_r)
-        # 跨模态链接预测的过程中，只考虑h+r和尾部图像的匹配度
-        score = self._calc(h, t, r, mode)
-        if self.margin_flag:
-            return self.margin - score
-        else:
-            return score
-    
-    def score_vis2ent(self, data):
-        batch_h = data['batch_h']
-        batch_t = data['batch_t']
-        batch_r = data['batch_r']
-        mode = data['mode']
-        h = self.img_proj(self.img_embeddings(batch_h))
-        t = self.ent_embeddings(batch_t)
-        r = self.rel_embeddings(batch_r)
-        # 跨模态链接预测的过程中，只考虑h+r和尾部图像的匹配度
-        score = self._calc(h, t, r, mode)
-        if self.margin_flag:
-            return self.margin - score
-        else:
-            return score
-    
-    def score_all2ent(self, data):
-        batch_h = data['batch_h']
-        batch_t = data['batch_t']
-        batch_r = data['batch_r']
-        mode = data['mode']
-        h = self.ent_embeddings(batch_h)
-        t = self.ent_embeddings(batch_t)
-        r = self.rel_embeddings(batch_r)
-        h_img = self.img_proj(self.img_embeddings(batch_h))
-        # 跨模态链接预测的过程中，只考虑h+r和尾部图像的匹配度
-        score = self._calc(h, t, r, mode) + self._calc(h_img, t, r, mode)
-        if self.margin_flag:
-            return self.margin - score
-        else:
-            return score
-    
-    def score_all2vis(self, data):
-        batch_h = data['batch_h']
-        batch_t = data['batch_t']
-        batch_r = data['batch_r']
-        mode = data['mode']
-        h = self.ent_embeddings(batch_h)
-        t = self.ent_embeddings(batch_t)
-        r = self.rel_embeddings(batch_r)
-        h_img = self.img_proj(self.img_embeddings(batch_h))
-        t_img = self.img_proj(self.img_embeddings(batch_t))
-        # 跨模态链接预测的过程中，只考虑h+r和尾部图像的匹配度
-        score = self._calc(h, t_img, r, mode) + self._calc(h_img, t_img, r, mode)
         if self.margin_flag:
             return self.margin - score
         else:
